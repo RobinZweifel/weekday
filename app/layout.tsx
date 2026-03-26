@@ -50,6 +50,12 @@ export default function RootLayout({
               >
                 Learn
               </Link>
+              <Link
+                href="/stats"
+                className="text-zinc-600 transition-colors hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+              >
+                Stats
+              </Link>
             </nav>
           </div>
         </header>

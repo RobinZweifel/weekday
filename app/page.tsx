@@ -12,6 +12,13 @@ export default function Home() {
           className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200"
         >
           Doomsday method
+        </Link>{" "}
+        or see{" "}
+        <Link
+          href="/stats"
+          className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200"
+        >
+          stats
         </Link>
         .
       </p>

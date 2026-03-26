@@ -7,6 +7,16 @@ import {
   type ChallengeDate,
 } from "@/app/actions/challenge";
 import type { Difficulty } from "@/lib/weekday";
+import {
+  accuracyForMode,
+  applyRoundResult,
+  clearTrainerState,
+  createDefaultTrainerState,
+  DIFFICULTY_LABELS,
+  loadTrainerState,
+  saveTrainerState,
+  type TrainerPersistedState,
+} from "@/lib/trainer-stats";
 
 const WEEKDAYS_MON_FIRST: { label: string; value: number }[] = [
   { label: "Mon", value: 1 },
@@ -25,11 +35,6 @@ const DIFFICULTY_OPTIONS: { id: Difficulty; label: string }[] = [
   { id: "hard", label: "Hard" },
 ];
 
-const STATS_KEY = "weekday-trainer-stats";
-const HISTORY_LEN = 20;
-
-type PersistedStats = { streak: number; history: boolean[] };
-
 function weekdayName(d: number): string {
   return WEEKDAYS_MON_FIRST.find((x) => x.value === d)?.label ?? "?";
 }
@@ -43,61 +48,28 @@ function formatChallengeDate(y: number, m: number, d: number): string {
   }).format(new Date(Date.UTC(y, m - 1, d)));
 }
 
-function loadStats(): PersistedStats {
-  if (typeof window === "undefined") {
-    return { streak: 0, history: [] };
-  }
-  try {
-    const raw = localStorage.getItem(STATS_KEY);
-    if (!raw) return { streak: 0, history: [] };
-    const p = JSON.parse(raw) as unknown;
-    if (
-      !p ||
-      typeof p !== "object" ||
-      !("streak" in p) ||
-      !("history" in p)
-    ) {
-      return { streak: 0, history: [] };
-    }
-    const streak = Number((p as PersistedStats).streak);
-    const history = (p as PersistedStats).history;
-    return {
-      streak: Number.isFinite(streak) ? Math.max(0, streak) : 0,
-      history: Array.isArray(history)
-        ? history.filter((x) => typeof x === "boolean").slice(-HISTORY_LEN)
-        : [],
-    };
-  } catch {
-    return { streak: 0, history: [] };
-  }
-}
-
-function saveStats(s: PersistedStats) {
-  localStorage.setItem(
-    STATS_KEY,
-    JSON.stringify({ streak: s.streak, history: s.history.slice(-HISTORY_LEN) })
-  );
-}
-
 export function WeekdayTrainer() {
   const [difficulty, setDifficulty] = useState<Difficulty>("easy");
   const [challenge, setChallenge] = useState<ChallengeDate | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [phase, setPhase] = useState<"guess" | "revealed">("guess");
+  const [secondChanceEnabled, setSecondChanceEnabled] = useState(false);
+  const [wrongWeekdays, setWrongWeekdays] = useState<number[]>([]);
   const [result, setResult] = useState<{
     correct: boolean;
     actualWeekday: number;
+    secondTry?: boolean;
   } | null>(null);
-  const [stats, setStats] = useState<PersistedStats>({
-    streak: 0,
-    history: [],
-  });
+  const [trainerState, setTrainerState] = useState<TrainerPersistedState>(() =>
+    createDefaultTrainerState()
+  );
 
   const fetchChallenge = useCallback(async (d: Difficulty) => {
     setLoading(true);
     setPhase("guess");
     setResult(null);
+    setWrongWeekdays([]);
     try {
       const next = await createChallenge(d);
       setChallenge(next);
@@ -107,23 +79,20 @@ export function WeekdayTrainer() {
   }, []);
 
   useEffect(() => {
-    setStats(loadStats());
+    setTrainerState(loadTrainerState());
   }, []);
 
   useEffect(() => {
     void fetchChallenge(difficulty);
   }, [difficulty, fetchChallenge]);
 
-  const accuracy =
-    stats.history.length === 0
-      ? null
-      : Math.round(
-          (stats.history.filter(Boolean).length / stats.history.length) * 100
-        );
+  const modeStats = trainerState.byDifficulty[difficulty];
+  const accuracy = accuracyForMode(modeStats);
 
   const handleGuess = useCallback(
     async (weekday: number) => {
       if (!challenge || phase !== "guess" || submitting) return;
+      if (wrongWeekdays.includes(weekday)) return;
       setSubmitting(true);
       try {
         const r = await checkAnswer({
@@ -132,25 +101,57 @@ export function WeekdayTrainer() {
           day: challenge.day,
           weekday,
         });
-        setResult(r);
+        if (r.correct) {
+          const secondTry = wrongWeekdays.length > 0;
+          setResult({
+            correct: true,
+            actualWeekday: r.actualWeekday,
+            secondTry,
+          });
+          setPhase("revealed");
+          setTrainerState((prev) => {
+            const next = applyRoundResult(prev, difficulty, true);
+            saveTrainerState(next);
+            return next;
+          });
+          return;
+        }
+        if (secondChanceEnabled && wrongWeekdays.length === 0) {
+          setWrongWeekdays([weekday]);
+          return;
+        }
+        setResult({
+          correct: false,
+          actualWeekday: r.actualWeekday,
+        });
         setPhase("revealed");
-        setStats((prev) => {
-          const nextStreak = r.correct ? prev.streak + 1 : 0;
-          const nextHistory = [...prev.history, r.correct].slice(-HISTORY_LEN);
-          const next = { streak: nextStreak, history: nextHistory };
-          saveStats(next);
+        setTrainerState((prev) => {
+          const next = applyRoundResult(prev, difficulty, false);
+          saveTrainerState(next);
           return next;
         });
       } finally {
         setSubmitting(false);
       }
     },
-    [challenge, phase, submitting]
+    [
+      challenge,
+      phase,
+      submitting,
+      secondChanceEnabled,
+      wrongWeekdays,
+      difficulty,
+    ]
   );
 
   const handleNext = () => {
     void fetchChallenge(difficulty);
   };
+
+  const handleResetStats = useCallback(() => {
+    clearTrainerState();
+    setTrainerState(createDefaultTrainerState());
+  }, []);
 
   useEffect(() => {
     if (phase !== "guess" || loading) return;
@@ -164,19 +165,54 @@ export function WeekdayTrainer() {
       if (n < "1" || n > "7") return;
       const idx = Number(n) - 1;
       const wd = WEEKDAYS_MON_FIRST[idx]?.value;
-      if (wd !== undefined) void handleGuess(wd);
+      if (wd === undefined || wrongWeekdays.includes(wd)) return;
+      void handleGuess(wd);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [phase, loading, handleGuess]);
+  }, [phase, loading, handleGuess, wrongWeekdays]);
 
   return (
-    <div className="relative w-full max-w-lg">
-      <div className="absolute -top-1 right-0 text-right text-xs text-zinc-500 dark:text-zinc-400">
-        <div>Streak: {stats.streak}</div>
-        {accuracy !== null && (
-          <div>Last {stats.history.length}: {accuracy}%</div>
-        )}
+    <div className="w-full max-w-lg">
+      <div className="mb-3 flex items-start justify-between gap-4">
+        <button
+          type="button"
+          onClick={handleResetStats}
+          className="shrink-0 pt-0.5 text-left text-xs text-zinc-500 underline-offset-2 hover:text-zinc-800 hover:underline focus-visible:rounded focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none dark:text-zinc-400 dark:hover:text-zinc-200 dark:focus-visible:ring-zinc-500"
+        >
+          Reset stats
+        </button>
+        <div
+          className="flex min-w-0 flex-col items-end gap-0.5 text-right text-xs text-zinc-500 tabular-nums dark:text-zinc-400"
+          role="status"
+          aria-label={
+            accuracy !== null
+              ? `${DIFFICULTY_LABELS[difficulty]}: streak ${modeStats.streak}. Accuracy over last ${modeStats.history.length} answers: ${accuracy} percent.`
+              : `${DIFFICULTY_LABELS[difficulty]}: streak ${modeStats.streak}.`
+          }
+        >
+          <span className="text-[10px] font-medium tracking-wide text-zinc-400 uppercase dark:text-zinc-500">
+            {DIFFICULTY_LABELS[difficulty]}
+          </span>
+          <span>
+            Streak{" "}
+            <span className="font-medium text-zinc-800 dark:text-zinc-200">
+              {modeStats.streak}
+            </span>
+          </span>
+          {accuracy !== null ? (
+            <span>
+              Last {modeStats.history.length}:{" "}
+              <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                {accuracy}%
+              </span>
+            </span>
+          ) : (
+            <span className="text-zinc-400 dark:text-zinc-500">
+              No rounds yet
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="rounded-2xl border border-zinc-200/80 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
@@ -199,14 +235,28 @@ export function WeekdayTrainer() {
           )}
         </div>
 
+        {wrongWeekdays.length > 0 && phase === "guess" && (
+          <p
+            className="mb-4 text-center text-sm font-medium text-amber-800 dark:text-amber-200"
+            role="status"
+          >
+            Not that one — one more try.
+          </p>
+        )}
+
         <div
           className="mb-6 flex flex-wrap justify-center gap-2"
           role="group"
           aria-label="Pick weekday"
         >
           {WEEKDAYS_MON_FIRST.map(({ label, value }, i) => {
+            const pickedWrong = wrongWeekdays.includes(value);
             const disabled =
-              loading || !challenge || phase !== "guess" || submitting;
+              loading ||
+              !challenge ||
+              phase !== "guess" ||
+              submitting ||
+              pickedWrong;
             return (
               <button
                 key={value}
@@ -231,7 +281,9 @@ export function WeekdayTrainer() {
           >
             {result.correct ? (
               <p className="font-medium text-emerald-700 dark:text-emerald-400">
-                Correct.
+                {result.secondTry
+                  ? "Correct on your second try."
+                  : "Correct."}
               </p>
             ) : (
               <p className="text-zinc-700 dark:text-zinc-300">
@@ -249,6 +301,16 @@ export function WeekdayTrainer() {
         )}
 
         <div className="flex flex-col items-center gap-4 border-t border-zinc-100 pt-6 dark:border-zinc-800">
+          <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+            <input
+              type="checkbox"
+              checked={secondChanceEnabled}
+              onChange={(e) => setSecondChanceEnabled(e.target.checked)}
+              className="size-4 rounded border-zinc-300 text-zinc-900 focus:ring-2 focus:ring-zinc-400 focus:ring-offset-0 dark:border-zinc-600 dark:bg-zinc-900 dark:focus:ring-zinc-500"
+            />
+            <span>Second chance (one retry if the first guess is wrong)</span>
+          </label>
+
           <div className="flex flex-wrap justify-center gap-2">
             {DIFFICULTY_OPTIONS.map(({ id, label }) => (
               <button
