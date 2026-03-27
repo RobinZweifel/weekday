@@ -15,6 +15,7 @@ import {
   createDefaultTrainerState,
   DIFFICULTY_LABELS,
   loadTrainerState,
+  MAX_RECORDED_ANSWER_MS,
   saveTrainerState,
   type TrainerPersistedState,
 } from "@/lib/trainer-stats";
@@ -35,8 +36,6 @@ const DIFFICULTY_OPTIONS: { id: Difficulty; label: string }[] = [
 
 /** How long date + weekday row stay visible before hiding (memory mode). */
 const MEMORIZE_MS = 5000;
-/** How long a “Peek date” stays on screen. */
-const PEEK_MS = 3000;
 
 function formatChallengeDate(y: number, m: number, d: number): string {
   return new Intl.DateTimeFormat("en-US", {
@@ -71,20 +70,65 @@ export function WeekdayTrainer({
   const [surfaceMemorizeVisible, setSurfaceMemorizeVisible] = useState(true);
   const [answerOpen, setAnswerOpen] = useState(false);
   const [peekDate, setPeekDate] = useState(false);
-  const peekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteBootstrapDone = useRef(false);
 
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
+  const showWeekdayButtonsRef = useRef(false);
+
+  const timerRoundKeyRef = useRef<string | null>(null);
+  const answerStartPerfRef = useRef<number | null>(null);
+  const pausedTotalMsRef = useRef(0);
+  const pauseSincePerfRef = useRef<number | null>(null);
+
+  const syncAnswerPause = useCallback(() => {
+    const started = answerStartPerfRef.current !== null;
+    const ph = phaseRef.current;
+    const showBtn = showWeekdayButtonsRef.current;
+    const tabHidden =
+      typeof document !== "undefined" &&
+      document.visibilityState === "hidden";
+    const shouldPause =
+      started && (tabHidden || (ph === "guess" && !showBtn));
+
+    if (shouldPause && pauseSincePerfRef.current === null) {
+      pauseSincePerfRef.current = performance.now();
+    }
+    if (!shouldPause && pauseSincePerfRef.current !== null) {
+      pausedTotalMsRef.current +=
+        performance.now() - pauseSincePerfRef.current;
+      pauseSincePerfRef.current = null;
+    }
+  }, []);
+
+  const snapshotAnswerMs = useCallback((): number | undefined => {
+    if (typeof performance === "undefined") return undefined;
+    syncAnswerPause();
+    const start = answerStartPerfRef.current;
+    if (start === null) return undefined;
+    const end = performance.now();
+    let paused = pausedTotalMsRef.current;
+    if (pauseSincePerfRef.current !== null) {
+      paused += end - pauseSincePerfRef.current;
+    }
+    const raw = end - start - paused;
+    if (!Number.isFinite(raw) || raw < 0) return undefined;
+    const rounded = Math.round(raw);
+    if (rounded > MAX_RECORDED_ANSWER_MS) return undefined;
+    return rounded;
+  }, [syncAnswerPause]);
+
   const fetchChallenge = useCallback(async (d: Difficulty) => {
+    timerRoundKeyRef.current = null;
+    answerStartPerfRef.current = null;
+    pausedTotalMsRef.current = 0;
+    pauseSincePerfRef.current = null;
     setLoading(true);
     setPhase("guess");
     setResult(null);
     setWrongWeekdays([]);
     setAnswerOpen(false);
     setPeekDate(false);
-    if (peekTimerRef.current) {
-      clearTimeout(peekTimerRef.current);
-      peekTimerRef.current = null;
-    }
     try {
       const next = await createChallenge(d);
       setChallenge(next);
@@ -129,12 +173,6 @@ export function WeekdayTrainer({
   }, [wrongWeekdays.length]);
 
   useEffect(() => {
-    return () => {
-      if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
-    };
-  }, []);
-
-  useEffect(() => {
     if (!memoryMode) {
       setSurfaceMemorizeVisible(true);
       setAnswerOpen(true);
@@ -147,13 +185,42 @@ export function WeekdayTrainer({
     return () => clearTimeout(id);
   }, [memoryMode, challenge, loading, phase]);
 
-  const handlePeekDate = useCallback(() => {
-    if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
-    setPeekDate(true);
-    peekTimerRef.current = setTimeout(() => {
+  const endPeekDate = useCallback(() => {
+    setPeekDate(false);
+  }, []);
+
+  const onPeekPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      setPeekDate(true);
+    },
+    []
+  );
+
+  const onPeekPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
       setPeekDate(false);
-      peekTimerRef.current = null;
-    }, PEEK_MS);
+    },
+    []
+  );
+
+  const onPeekKeyDown = useCallback((e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.repeat) return;
+    if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      setPeekDate(true);
+    }
+  }, []);
+
+  const onPeekKeyUp = useCallback((e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      setPeekDate(false);
+    }
   }, []);
 
   const inRecall =
@@ -177,6 +244,40 @@ export function WeekdayTrainer({
       ? false
       : surfaceMemorizeVisible || answerOpen;
 
+  showWeekdayButtonsRef.current = showWeekdayButtons;
+
+  const challengeKey =
+    challenge && !loading
+      ? `${challenge.year}-${challenge.month}-${challenge.day}`
+      : null;
+
+  useEffect(() => {
+    const onVis = () => syncAnswerPause();
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [syncAnswerPause]);
+
+  useEffect(() => {
+    if (!challengeKey || loading || phase !== "guess") return;
+    if (!showWeekdayButtons) return;
+    if (timerRoundKeyRef.current === challengeKey) return;
+    timerRoundKeyRef.current = challengeKey;
+    answerStartPerfRef.current = performance.now();
+    pausedTotalMsRef.current = 0;
+    pauseSincePerfRef.current = null;
+    syncAnswerPause();
+  }, [
+    challengeKey,
+    loading,
+    phase,
+    showWeekdayButtons,
+    syncAnswerPause,
+  ]);
+
+  useEffect(() => {
+    syncAnswerPause();
+  }, [showWeekdayButtons, phase, syncAnswerPause]);
+
   const modeStats = trainerState.byDifficulty[difficulty];
   const accuracy = accuracyForMode(modeStats);
 
@@ -184,6 +285,7 @@ export function WeekdayTrainer({
     async (weekday: number) => {
       if (!challenge || phase !== "guess" || submitting) return;
       if (wrongWeekdays.includes(weekday)) return;
+      const answerMs = snapshotAnswerMs();
       setSubmitting(true);
       try {
         const r = await checkAnswer({
@@ -201,7 +303,7 @@ export function WeekdayTrainer({
           });
           setPhase("revealed");
           setTrainerState((prev) => {
-            const next = applyRoundResult(prev, difficulty, true);
+            const next = applyRoundResult(prev, difficulty, true, answerMs);
             saveTrainerState(next);
             return next;
           });
@@ -217,7 +319,7 @@ export function WeekdayTrainer({
         });
         setPhase("revealed");
         setTrainerState((prev) => {
-          const next = applyRoundResult(prev, difficulty, false);
+          const next = applyRoundResult(prev, difficulty, false, answerMs);
           saveTrainerState(next);
           return next;
         });
@@ -232,6 +334,7 @@ export function WeekdayTrainer({
       secondChanceEnabled,
       wrongWeekdays,
       difficulty,
+      snapshotAnswerMs,
     ]
   );
 
@@ -306,10 +409,12 @@ export function WeekdayTrainer({
 
         {inRecall && (
           <p className="mb-2 text-center text-[11px] leading-snug text-zinc-600 sm:mb-4 sm:text-sm dark:text-zinc-400">
-            <span className="sm:hidden">Peek for the date or Answer to pick.</span>
+            <span className="sm:hidden">
+              Hold Peek for the date or tap Answer to pick.
+            </span>
             <span className="hidden sm:inline">
-              Date and choices are hidden. Peek if you need the date again, or
-              Answer when you are ready to pick.
+              Date and choices are hidden. Hold Peek to see the date, or Answer
+              when you are ready to pick.
             </span>
           </p>
         )}
@@ -337,8 +442,17 @@ export function WeekdayTrainer({
           <div className="mb-4 flex flex-row flex-wrap items-center justify-center gap-2 sm:mb-6 sm:gap-2">
             <button
               type="button"
-              onClick={handlePeekDate}
-              className="min-h-[40px] rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-800 transition-colors hover:bg-zinc-50 active:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none sm:min-h-0 sm:px-4 sm:py-2 sm:text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 dark:active:bg-zinc-700 dark:focus-visible:ring-zinc-500"
+              aria-pressed={peekDate}
+              aria-label="Peek date — hold to show"
+              title="Hold to show the date"
+              className="min-h-[40px] select-none rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-800 touch-manipulation transition-colors hover:bg-zinc-50 active:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none sm:min-h-0 sm:px-4 sm:py-2 sm:text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 dark:active:bg-zinc-700 dark:focus-visible:ring-zinc-500"
+              onPointerDown={onPeekPointerDown}
+              onPointerUp={onPeekPointerUp}
+              onPointerCancel={onPeekPointerUp}
+              onLostPointerCapture={endPeekDate}
+              onKeyDown={onPeekKeyDown}
+              onKeyUp={onPeekKeyUp}
+              onBlur={endPeekDate}
             >
               Peek date
             </button>
@@ -424,7 +538,7 @@ export function WeekdayTrainer({
               checked={memoryMode}
               onCheckedChange={setMemoryMode}
               label="Memory mode"
-              description={`Hide the date and weekday row after ${MEMORIZE_MS / 1000} seconds. Use Peek or Answer when you are ready.`}
+              description={`Hide the date and weekday row after ${MEMORIZE_MS / 1000} seconds. Hold Peek or use Answer when you are ready.`}
             />
             <SettingsToggle
               id="toggle-second-chance"

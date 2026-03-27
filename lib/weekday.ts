@@ -9,15 +9,15 @@ export const DIFFICULTY_YEAR_RANGE: Record<
   hard: { minYear: 1600, maxYear: 2399 },
 };
 
-/** `very_easy` uses current UTC year ± 1; others use fixed ranges. */
+/** `very_easy` uses current UTC year ± 2; others use fixed ranges. */
 export function getDifficultyYearRange(
   difficulty: Difficulty,
   referenceUtcYear: number = new Date().getUTCFullYear()
 ): { minYear: number; maxYear: number } {
   if (difficulty === "very_easy") {
     return {
-      minYear: referenceUtcYear - 1,
-      maxYear: referenceUtcYear + 1,
+      minYear: referenceUtcYear - 2,
+      maxYear: referenceUtcYear + 2,
     };
   }
   return DIFFICULTY_YEAR_RANGE[difficulty];

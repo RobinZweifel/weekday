@@ -32,6 +32,12 @@ export default function DoomsdayYearGuidePage() {
         >
           Year drill →
         </Link>
+        <Link
+          href="/doomsday/help"
+          className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+        >
+          Cheat sheet →
+        </Link>
       </div>
 
       <h1 className="mb-3 text-2xl font-semibold tracking-tight sm:text-3xl">

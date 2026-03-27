@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   checkDoomsdayAnswer,
   createDoomsdayChallenge,
@@ -79,8 +85,24 @@ function saveStats(s: DrillStats) {
   );
 }
 
+function parseSliderTuple(
+  v: readonly number[] | number
+): [number, number] | null {
+  if (!Array.isArray(v) || v.length !== 2) return null;
+  const a = Math.round(v[0]!);
+  const b = Math.round(v[1]!);
+  if (!isValidDoomsdayChallengeRange(a, b)) return null;
+  return [a, b];
+}
+
 export function DoomsdayTrainer() {
-  const [yearRange, setYearRange] = useState<[number, number]>([
+  /** Thumbs follow drag immediately (no refetch while moving). */
+  const [sliderRange, setSliderRange] = useState<[number, number]>([
+    DOOMSDAY_DEFAULT_RANGE[0],
+    DOOMSDAY_DEFAULT_RANGE[1],
+  ]);
+  /** Committed range: new challenge only after pointer/keyboard commit. */
+  const [activeRange, setActiveRange] = useState<[number, number]>([
     DOOMSDAY_DEFAULT_RANGE[0],
     DOOMSDAY_DEFAULT_RANGE[1],
   ]);
@@ -94,13 +116,17 @@ export function DoomsdayTrainer() {
     actualWeekday: number;
   } | null>(null);
   const [stats, setStats] = useState<DrillStats>({ streak: 0, history: [] });
+  const challengeRequestId = useRef(0);
 
   useLayoutEffect(() => {
-    setYearRange(loadYearRangeFromStorage());
+    const loaded = loadYearRangeFromStorage();
+    setSliderRange(loaded);
+    setActiveRange(loaded);
     setRangeReady(true);
   }, []);
 
   const fetchChallenge = useCallback(async (minY: number, maxY: number) => {
+    const req = ++challengeRequestId.current;
     setLoading(true);
     setPhase("guess");
     setResult(null);
@@ -109,9 +135,12 @@ export function DoomsdayTrainer() {
         minYear: minY,
         maxYear: maxY,
       });
+      if (req !== challengeRequestId.current) return;
       setChallenge(next);
     } finally {
-      setLoading(false);
+      if (req === challengeRequestId.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -121,17 +150,17 @@ export function DoomsdayTrainer() {
 
   useEffect(() => {
     if (!rangeReady) return;
-    void fetchChallenge(yearRange[0], yearRange[1]);
-  }, [yearRange, fetchChallenge, rangeReady]);
+    void fetchChallenge(activeRange[0], activeRange[1]);
+  }, [activeRange, fetchChallenge, rangeReady]);
 
   useEffect(() => {
     if (!rangeReady) return;
     try {
-      localStorage.setItem(RANGE_STORAGE_KEY, JSON.stringify(yearRange));
+      localStorage.setItem(RANGE_STORAGE_KEY, JSON.stringify(activeRange));
     } catch {
       /* ignore */
     }
-  }, [yearRange, rangeReady]);
+  }, [activeRange, rangeReady]);
 
   const accuracy =
     stats.history.length === 0
@@ -166,7 +195,7 @@ export function DoomsdayTrainer() {
   );
 
   const handleNext = () => {
-    void fetchChallenge(yearRange[0], yearRange[1]);
+    void fetchChallenge(activeRange[0], activeRange[1]);
   };
 
   useEffect(() => {
@@ -228,12 +257,24 @@ export function DoomsdayTrainer() {
             the Gregorian year.)
           </span>
         </p>
-        <p className="mb-3 text-center sm:mb-6">
+        <p className="mb-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-center sm:mb-6">
           <Link
             href="/learn/doomsday-year"
             className="text-[11px] font-medium text-zinc-600 underline-offset-2 hover:text-zinc-900 hover:underline sm:text-xs dark:text-zinc-400 dark:hover:text-zinc-200"
           >
             Quick guide: find any year’s Doomsday
+          </Link>
+          <span
+            className="hidden text-zinc-300 sm:inline dark:text-zinc-600"
+            aria-hidden
+          >
+            ·
+          </span>
+          <Link
+            href="/doomsday/help"
+            className="text-[11px] font-medium text-zinc-600 underline-offset-2 hover:text-zinc-900 hover:underline sm:text-xs dark:text-zinc-400 dark:hover:text-zinc-200"
+          >
+            Cheat sheet: anchors & key years
           </Link>
         </p>
 
@@ -285,12 +326,13 @@ export function DoomsdayTrainer() {
             <p className="mb-2 text-center text-[11px] font-medium text-zinc-600 sm:text-xs dark:text-zinc-300">
               Year range{" "}
               <span className="font-mono tabular-nums text-zinc-900 dark:text-zinc-100">
-                {yearRange[0]}–{yearRange[1]}
+                {sliderRange[0]}–{sliderRange[1]}
               </span>
             </p>
             <p className="mb-3 text-center text-[10px] text-zinc-500 sm:text-xs dark:text-zinc-400">
               Drag either end ({DOOMSDAY_SLIDER_MIN}–{DOOMSDAY_SLIDER_MAX}). A
-              new year is drawn when the range changes.
+              new random year loads when you release the slider (or finish a
+              keyboard move)—not on every step while dragging.
             </p>
             <Slider
               className="w-full py-2 [&_[data-slot=slider-thumb]]:size-4 [&_[data-slot=slider-thumb]]:after:-inset-3 sm:[&_[data-slot=slider-thumb]]:size-3 sm:[&_[data-slot=slider-thumb]]:after:-inset-2"
@@ -298,15 +340,14 @@ export function DoomsdayTrainer() {
               max={DOOMSDAY_SLIDER_MAX}
               step={1}
               minStepsBetweenValues={0}
-              value={yearRange}
+              value={sliderRange}
               onValueChange={(v) => {
-                if (Array.isArray(v) && v.length === 2) {
-                  const a = Math.round(v[0]!);
-                  const b = Math.round(v[1]!);
-                  if (isValidDoomsdayChallengeRange(a, b)) {
-                    setYearRange([a, b]);
-                  }
-                }
+                const t = parseSliderTuple(v);
+                if (t) setSliderRange(t);
+              }}
+              onValueCommitted={(v) => {
+                const t = parseSliderTuple(v);
+                if (t) setActiveRange(t);
               }}
               aria-label="Gregorian year range for practice"
             />

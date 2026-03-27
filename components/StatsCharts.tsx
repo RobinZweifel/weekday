@@ -30,6 +30,8 @@ import {
   dailyAggregatesLastDays,
   DIFFICULTY_LABELS,
   DIFFICULTY_ORDER,
+  formatAnswerDuration,
+  rollingMeanAnswerMs,
   totalRoundsForDifficulty,
   type TrainerPersistedState,
 } from "@/lib/trainer-stats";
@@ -119,6 +121,7 @@ export function StatsCharts({ state }: StatsChartsProps) {
         name: DIFFICULTY_LABELS[id],
         rounds: totalRoundsForDifficulty(state.rounds, id),
         accuracy: accuracyForMode(state.byDifficulty[id]),
+        avgAnswerMs: rollingMeanAnswerMs(state.rounds, id),
       })),
     [state.rounds, state.byDifficulty]
   );
@@ -363,9 +366,13 @@ export function StatsCharts({ state }: StatsChartsProps) {
                   <ChartTooltipContent
                     formatter={(value, name, item) => {
                       const row = item?.payload as
-                        | { accuracy: number | null }
+                        | {
+                            accuracy: number | null;
+                            avgAnswerMs: number | null;
+                          }
                         | undefined;
                       const acc = row?.accuracy;
+                      const avgMs = row?.avgAnswerMs;
                       return (
                         <div className="flex flex-col gap-0.5 text-right">
                           <span className="tabular-nums font-medium">
@@ -374,6 +381,12 @@ export function StatsCharts({ state }: StatsChartsProps) {
                           {acc != null ? (
                             <span className="text-muted-foreground">
                               Rolling {acc}% (last 20)
+                            </span>
+                          ) : null}
+                          {avgMs != null ? (
+                            <span className="text-muted-foreground">
+                              Avg. answer {formatAnswerDuration(avgMs)} (last 50
+                              timed)
                             </span>
                           ) : null}
                         </div>

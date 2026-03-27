@@ -4,6 +4,11 @@ export const TRAINER_STATS_KEY = "weekday-trainer-stats";
 export const HISTORY_LEN = 20;
 export const MAX_ROUNDS_LOG = 2000;
 
+/** Rounds longer than this (active time) are not stored — avoids AFK / idle skew. */
+export const MAX_RECORDED_ANSWER_MS = 15 * 60 * 1000;
+
+const ANSWER_MS_ROLLING = 50;
+
 export const DIFFICULTY_ORDER: Difficulty[] = [
   "very_easy",
   "easy",
@@ -27,6 +32,8 @@ export type RoundEntry = {
   at: number;
   difficulty: Difficulty;
   won: boolean;
+  /** Active ms from when choices were available until the guess (excludes tab hidden & hidden choices). */
+  answerMs?: number;
 };
 
 export type TrainerPersistedState = {
@@ -80,7 +87,14 @@ function parseRound(raw: unknown): RoundEntry | null {
   ) {
     return null;
   }
-  return { at, difficulty, won };
+  const entry: RoundEntry = { at, difficulty, won };
+  if ("answerMs" in o && o.answerMs != null) {
+    const ms = Math.round(Number(o.answerMs));
+    if (Number.isFinite(ms) && ms >= 0 && ms <= MAX_RECORDED_ANSWER_MS) {
+      entry.answerMs = ms;
+    }
+  }
+  return entry;
 }
 
 /** Validate and normalize JSON (e.g. from API / DB). Returns `null` if not v2-shaped. */
@@ -153,7 +167,8 @@ export function saveTrainerState(state: TrainerPersistedState) {
 export function applyRoundResult(
   state: TrainerPersistedState,
   difficulty: Difficulty,
-  won: boolean
+  won: boolean,
+  answerMs?: number
 ): TrainerPersistedState {
   const cur = state.byDifficulty[difficulty];
   const nextStreak = won ? cur.streak + 1 : 0;
@@ -162,10 +177,14 @@ export function applyRoundResult(
     ...state.byDifficulty,
     [difficulty]: { streak: nextStreak, history: nextHistory },
   };
-  const rounds = [
-    ...state.rounds,
-    { at: Date.now(), difficulty, won },
-  ].slice(-MAX_ROUNDS_LOG);
+  const round: RoundEntry = { at: Date.now(), difficulty, won };
+  if (answerMs !== undefined && Number.isFinite(answerMs)) {
+    const ms = Math.round(answerMs);
+    if (ms >= 0 && ms <= MAX_RECORDED_ANSWER_MS) {
+      round.answerMs = ms;
+    }
+  }
+  const rounds = [...state.rounds, round].slice(-MAX_ROUNDS_LOG);
   return { version: 2, byDifficulty, rounds };
 }
 
@@ -246,4 +265,39 @@ export function totalRoundsForDifficulty(
   difficulty: Difficulty
 ): number {
   return rounds.filter((r) => r.difficulty === difficulty).length;
+}
+
+/** Rolling mean of `answerMs` for the last `maxSamples` rounds that recorded time. */
+export function rollingMeanAnswerMs(
+  rounds: RoundEntry[],
+  difficulty: Difficulty,
+  maxSamples: number = ANSWER_MS_ROLLING
+): number | null {
+  const slice = rounds.filter(
+    (r) => r.difficulty === difficulty && r.answerMs != null
+  );
+  const last = slice.slice(-maxSamples);
+  if (last.length === 0) return null;
+  const sum = last.reduce((a, r) => a + (r.answerMs as number), 0);
+  return Math.round(sum / last.length);
+}
+
+export function rollingMeanAnswerMsAllRounds(
+  rounds: RoundEntry[],
+  maxSamples: number = ANSWER_MS_ROLLING
+): number | null {
+  const slice = rounds.filter((r) => r.answerMs != null);
+  const last = slice.slice(-maxSamples);
+  if (last.length === 0) return null;
+  const sum = last.reduce((a, r) => a + (r.answerMs as number), 0);
+  return Math.round(sum / last.length);
+}
+
+export function formatAnswerDuration(ms: number): string {
+  if (ms < 1000) return `${ms} ms`;
+  const s = ms / 1000;
+  if (s < 60) return s < 10 ? `${s.toFixed(1)} s` : `${Math.round(s)} s`;
+  const m = Math.floor(s / 60);
+  const rs = Math.round(s - m * 60);
+  return `${m}m ${String(rs).padStart(2, "0")}s`;
 }

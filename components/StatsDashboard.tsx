@@ -8,7 +8,10 @@ import {
   createDefaultTrainerState,
   DIFFICULTY_LABELS,
   DIFFICULTY_ORDER,
+  formatAnswerDuration,
   loadTrainerState,
+  rollingMeanAnswerMs,
+  rollingMeanAnswerMsAllRounds,
   saveTrainerState,
   TRAINER_STATS_KEY,
   type TrainerPersistedState,
@@ -48,6 +51,7 @@ export function StatsDashboard({
   const grandWins = state.rounds.filter((r) => r.won).length;
   const grandPct =
     grandTotal === 0 ? null : Math.round((grandWins / grandTotal) * 100);
+  const grandAvgAnswerMs = rollingMeanAnswerMsAllRounds(state.rounds);
 
   return (
     <div className="min-w-0 space-y-8 sm:space-y-10">
@@ -63,7 +67,9 @@ export function StatsDashboard({
         </h1>
         <p className="mt-2 text-pretty text-sm text-zinc-600 sm:text-base dark:text-zinc-400">
           Streak and rolling accuracy are tracked separately for each
-          difficulty.
+          difficulty. Answer time is measured only while the tab is visible and
+          weekday choices are on screen (hidden tab or hidden choices pauses the
+          clock). Very long rounds are not timed.
           {syncedUserId ? (
             <>
               {" "}
@@ -90,6 +96,7 @@ export function StatsDashboard({
             const mode = state.byDifficulty[id];
             const acc = accuracyForMode(mode);
             const played = totalRoundsForDifficulty(state.rounds, id);
+            const avgMs = rollingMeanAnswerMs(state.rounds, id);
             return (
               <div
                 key={id}
@@ -113,6 +120,14 @@ export function StatsDashboard({
                     </dt>
                     <dd className="font-mono text-lg font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
                       {acc !== null ? `${acc}%` : "—"}
+                    </dd>
+                  </div>
+                  <div className="col-span-2">
+                    <dt className="text-xs text-zinc-500 dark:text-zinc-400">
+                      Avg. answer time (last 50 timed rounds)
+                    </dt>
+                    <dd className="font-mono text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
+                      {avgMs != null ? formatAnswerDuration(avgMs) : "—"}
                     </dd>
                   </div>
                   <div className="col-span-2 border-t border-zinc-100 pt-2 dark:border-zinc-800">
@@ -151,6 +166,19 @@ export function StatsDashboard({
               </span>
             )}
             .
+            {grandAvgAnswerMs != null ? (
+              <span className="mt-2 block text-zinc-600 dark:text-zinc-400">
+                Mean answer time (last 50 timed rounds, all modes):{" "}
+                <span className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
+                  {formatAnswerDuration(grandAvgAnswerMs)}
+                </span>
+              </span>
+            ) : (
+              <span className="mt-2 block text-zinc-500 dark:text-zinc-500">
+                Answer times appear after you complete timed rounds on the
+                practice page.
+              </span>
+            )}
           </p>
         </div>
       </section>

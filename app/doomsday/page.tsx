@@ -12,14 +12,21 @@ export default function DoomsdayPage() {
       <DoomsdayTrainer />
       <p className="mt-8 hidden max-w-md text-pretty text-center text-sm leading-relaxed text-zinc-500 sm:mt-10 sm:block dark:text-zinc-400">
         Choose any Gregorian year span with the slider (defaults are saved in
-        this browser). Review anchors on the{" "}
+        this browser). Open the{" "}
+        <Link
+          href="/doomsday/help"
+          className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200"
+        >
+          cheat sheet
+        </Link>
+        , review anchors on the{" "}
         <Link
           href="/learn"
           className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200"
         >
           Learn
         </Link>{" "}
-        page or go{" "}
+        page, or go{" "}
         <Link
           href="/"
           className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200"
