@@ -1,27 +1,53 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import {
   checkDoomsdayAnswer,
   createDoomsdayChallenge,
   type DoomsdayChallenge,
 } from "@/app/actions/doomsday-challenge";
-import type { Difficulty } from "@/lib/weekday";
+import { Slider } from "@/components/ui/slider";
+import {
+  DOOMSDAY_DEFAULT_RANGE,
+  DOOMSDAY_SLIDER_MAX,
+  DOOMSDAY_SLIDER_MIN,
+  isValidDoomsdayChallengeRange,
+} from "@/lib/doomsday";
 import { WEEKDAYS_MON_FIRST, weekdayShortLabel } from "@/lib/weekday-buttons";
 import { WeekdayPickerGrid } from "@/components/WeekdayPickerGrid";
 
-const DIFFICULTY_OPTIONS: { id: Difficulty; label: string }[] = [
-  { id: "very_easy", label: "Very easy" },
-  { id: "easy", label: "Easy" },
-  { id: "medium", label: "Medium" },
-  { id: "hard", label: "Hard" },
-];
+const RANGE_STORAGE_KEY = "weekday-doomsday-year-range";
 
 const STATS_KEY = "weekday-doomsday-drill-stats";
 const HISTORY_LEN = 20;
 
 type DrillStats = { streak: number; history: boolean[] };
+
+function loadYearRangeFromStorage(): [number, number] {
+  if (typeof window === "undefined") {
+    return [DOOMSDAY_DEFAULT_RANGE[0], DOOMSDAY_DEFAULT_RANGE[1]];
+  }
+  try {
+    const raw = localStorage.getItem(RANGE_STORAGE_KEY);
+    if (!raw) {
+      return [DOOMSDAY_DEFAULT_RANGE[0], DOOMSDAY_DEFAULT_RANGE[1]];
+    }
+    const p = JSON.parse(raw) as unknown;
+    if (Array.isArray(p) && p.length === 2) {
+      const a = Math.round(Number(p[0]));
+      const b = Math.round(Number(p[1]));
+      const lo = Math.min(a, b);
+      const hi = Math.max(a, b);
+      if (isValidDoomsdayChallengeRange(lo, hi)) {
+        return [lo, hi];
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return [DOOMSDAY_DEFAULT_RANGE[0], DOOMSDAY_DEFAULT_RANGE[1]];
+}
 
 function loadStats(): DrillStats {
   if (typeof window === "undefined") return { streak: 0, history: [] };
@@ -54,7 +80,11 @@ function saveStats(s: DrillStats) {
 }
 
 export function DoomsdayTrainer() {
-  const [difficulty, setDifficulty] = useState<Difficulty>("easy");
+  const [yearRange, setYearRange] = useState<[number, number]>([
+    DOOMSDAY_DEFAULT_RANGE[0],
+    DOOMSDAY_DEFAULT_RANGE[1],
+  ]);
+  const [rangeReady, setRangeReady] = useState(false);
   const [challenge, setChallenge] = useState<DoomsdayChallenge | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -65,12 +95,20 @@ export function DoomsdayTrainer() {
   } | null>(null);
   const [stats, setStats] = useState<DrillStats>({ streak: 0, history: [] });
 
-  const fetchChallenge = useCallback(async (d: Difficulty) => {
+  useLayoutEffect(() => {
+    setYearRange(loadYearRangeFromStorage());
+    setRangeReady(true);
+  }, []);
+
+  const fetchChallenge = useCallback(async (minY: number, maxY: number) => {
     setLoading(true);
     setPhase("guess");
     setResult(null);
     try {
-      const next = await createDoomsdayChallenge(d);
+      const next = await createDoomsdayChallenge({
+        minYear: minY,
+        maxYear: maxY,
+      });
       setChallenge(next);
     } finally {
       setLoading(false);
@@ -82,8 +120,18 @@ export function DoomsdayTrainer() {
   }, []);
 
   useEffect(() => {
-    void fetchChallenge(difficulty);
-  }, [difficulty, fetchChallenge]);
+    if (!rangeReady) return;
+    void fetchChallenge(yearRange[0], yearRange[1]);
+  }, [yearRange, fetchChallenge, rangeReady]);
+
+  useEffect(() => {
+    if (!rangeReady) return;
+    try {
+      localStorage.setItem(RANGE_STORAGE_KEY, JSON.stringify(yearRange));
+    } catch {
+      /* ignore */
+    }
+  }, [yearRange, rangeReady]);
 
   const accuracy =
     stats.history.length === 0
@@ -118,7 +166,7 @@ export function DoomsdayTrainer() {
   );
 
   const handleNext = () => {
-    void fetchChallenge(difficulty);
+    void fetchChallenge(yearRange[0], yearRange[1]);
   };
 
   useEffect(() => {
@@ -232,22 +280,40 @@ export function DoomsdayTrainer() {
           </div>
         )}
 
-        <div className="flex flex-col items-center gap-2 border-t border-zinc-100 pt-3 sm:gap-4 sm:pt-6 dark:border-zinc-800">
-          <div className="flex max-w-full flex-wrap justify-center gap-1 sm:gap-2">
-            {DIFFICULTY_OPTIONS.map(({ id, label }) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setDifficulty(id)}
-                className={`min-h-[34px] rounded-full px-2.5 py-1.5 text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none active:opacity-90 sm:min-h-0 sm:px-4 sm:py-1.5 sm:text-sm dark:focus-visible:ring-zinc-500 ${
-                  difficulty === id
-                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                    : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+        <div className="flex flex-col items-center gap-3 border-t border-zinc-100 pt-3 sm:gap-4 sm:pt-6 dark:border-zinc-800">
+          <div className="w-full min-w-0 px-1">
+            <p className="mb-2 text-center text-[11px] font-medium text-zinc-600 sm:text-xs dark:text-zinc-300">
+              Year range{" "}
+              <span className="font-mono tabular-nums text-zinc-900 dark:text-zinc-100">
+                {yearRange[0]}–{yearRange[1]}
+              </span>
+            </p>
+            <p className="mb-3 text-center text-[10px] text-zinc-500 sm:text-xs dark:text-zinc-400">
+              Drag either end ({DOOMSDAY_SLIDER_MIN}–{DOOMSDAY_SLIDER_MAX}). A
+              new year is drawn when the range changes.
+            </p>
+            <Slider
+              className="w-full py-2 [&_[data-slot=slider-thumb]]:size-4 [&_[data-slot=slider-thumb]]:after:-inset-3 sm:[&_[data-slot=slider-thumb]]:size-3 sm:[&_[data-slot=slider-thumb]]:after:-inset-2"
+              min={DOOMSDAY_SLIDER_MIN}
+              max={DOOMSDAY_SLIDER_MAX}
+              step={1}
+              minStepsBetweenValues={0}
+              value={yearRange}
+              onValueChange={(v) => {
+                if (Array.isArray(v) && v.length === 2) {
+                  const a = Math.round(v[0]!);
+                  const b = Math.round(v[1]!);
+                  if (isValidDoomsdayChallengeRange(a, b)) {
+                    setYearRange([a, b]);
+                  }
+                }
+              }}
+              aria-label="Gregorian year range for practice"
+            />
+            <div className="mt-1 flex justify-between font-mono text-[10px] text-zinc-400 tabular-nums dark:text-zinc-500">
+              <span>{DOOMSDAY_SLIDER_MIN}</span>
+              <span>{DOOMSDAY_SLIDER_MAX}</span>
+            </div>
           </div>
 
           {phase === "revealed" && (

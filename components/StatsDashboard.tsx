@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { StatsCharts } from "@/components/StatsCharts";
 import {
   accuracyForMode,
   createDefaultTrainerState,
-  dailyAggregatesLastDays,
   DIFFICULTY_LABELS,
   DIFFICULTY_ORDER,
   loadTrainerState,
@@ -44,7 +44,6 @@ export function StatsDashboard({
     return () => window.removeEventListener("storage", onStorage);
   }, [syncedUserId, initialRemoteState]);
 
-  const daily = dailyAggregatesLastDays(state.rounds, 30).slice().reverse();
   const grandTotal = state.rounds.length;
   const grandWins = state.rounds.filter((r) => r.won).length;
   const grandPct =
@@ -79,6 +78,8 @@ export function StatsDashboard({
           )}
         </p>
       </div>
+
+      <StatsCharts state={state} />
 
       <section>
         <h2 className="mb-3 text-sm font-semibold tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
@@ -151,39 +152,6 @@ export function StatsDashboard({
             )}
             .
           </p>
-        </div>
-      </section>
-
-      <section>
-        <h2 className="mb-3 text-sm font-semibold tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
-          Activity — last 30 days
-        </h2>
-        <p className="mb-4 text-xs text-zinc-500 dark:text-zinc-500">
-          Each bar is win rate for that calendar day (all difficulties).
-        </p>
-        <div className="space-y-2">
-          {daily.map(({ dayKey, label, wins, total }) => {
-            const pct = total === 0 ? 0 : Math.round((wins / total) * 100);
-            return (
-              <div
-                key={dayKey}
-                className="flex items-center gap-2 text-[11px] sm:gap-3 sm:text-xs"
-              >
-                <span className="w-[4.5rem] shrink-0 leading-tight text-zinc-500 tabular-nums sm:w-24 dark:text-zinc-400">
-                  {label}
-                </span>
-                <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
-                  <div
-                    className="h-full rounded-full bg-emerald-600 transition-[width] dark:bg-emerald-500"
-                    style={{ width: `${total === 0 ? 0 : pct}%` }}
-                  />
-                </div>
-                <span className="w-14 shrink-0 text-right tabular-nums text-zinc-600 sm:w-20 dark:text-zinc-300">
-                  {total === 0 ? "—" : `${wins}/${total}`}
-                </span>
-              </div>
-            );
-          })}
         </div>
       </section>
     </div>

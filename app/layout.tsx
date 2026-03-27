@@ -37,7 +37,15 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(()=>{try{var d=document.documentElement,m=window.matchMedia("(prefers-color-scheme: dark)");d.classList.toggle("dark",m.matches);m.addEventListener("change",e=>d.classList.toggle("dark",e.matches));}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body className="app-body min-h-dvh min-h-[100dvh] flex flex-col bg-zinc-50 font-sans text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
         <HeaderBar />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</main>

@@ -3,16 +3,25 @@
 import {
   getDoomsdayWeekday,
   isValidGregorianYear,
-  randomYearForDifficulty,
+  isValidDoomsdayChallengeRange,
+  randomYearInInclusiveRange,
 } from "@/lib/doomsday";
-import type { Difficulty } from "@/lib/weekday";
 
 export type DoomsdayChallenge = { year: number };
 
+export type DoomsdayYearRange = {
+  minYear: number;
+  maxYear: number;
+};
+
 export async function createDoomsdayChallenge(
-  difficulty: Difficulty
+  range: DoomsdayYearRange
 ): Promise<DoomsdayChallenge> {
-  return { year: randomYearForDifficulty(difficulty) };
+  const { minYear, maxYear } = range;
+  if (!isValidDoomsdayChallengeRange(minYear, maxYear)) {
+    throw new Error("Invalid year range");
+  }
+  return { year: randomYearInInclusiveRange(minYear, maxYear) };
 }
 
 export type CheckDoomsdayResult = {
