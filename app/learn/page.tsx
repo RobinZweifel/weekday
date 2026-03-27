@@ -33,13 +33,21 @@ export default function LearnPage() {
   const doomsdayName = WEEKDAY_NAMES[doomsdayWeekday];
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-12">
-      <Link
-        href="/"
-        className="mb-8 inline-block text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-      >
-        ← Back to practice
-      </Link>
+    <div className="mx-auto max-w-2xl min-w-0 px-3 py-10 sm:px-4 sm:py-12">
+      <div className="mb-8 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-6">
+        <Link
+          href="/"
+          className="text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+        >
+          ← Back to practice
+        </Link>
+        <Link
+          href="/doomsday"
+          className="text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+        >
+          Doomsday-by-year drill →
+        </Link>
+      </div>
 
       <h1 className="mb-2 text-3xl font-semibold tracking-tight">
         The Doomsday method

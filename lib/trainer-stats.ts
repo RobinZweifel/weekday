@@ -83,6 +83,13 @@ function parseRound(raw: unknown): RoundEntry | null {
   return { at, difficulty, won };
 }
 
+/** Validate and normalize JSON (e.g. from API / DB). Returns `null` if not v2-shaped. */
+export function parseTrainerPayload(raw: unknown): TrainerPersistedState | null {
+  if (!raw || typeof raw !== "object") return null;
+  if ((raw as { version?: unknown }).version !== 2) return null;
+  return normalizeV2(raw);
+}
+
 function normalizeV2(p: unknown): TrainerPersistedState {
   const base = createDefaultTrainerState();
   if (!p || typeof p !== "object") return base;
@@ -138,14 +145,6 @@ export function loadTrainerState(): TrainerPersistedState {
 export function saveTrainerState(state: TrainerPersistedState) {
   try {
     localStorage.setItem(TRAINER_STATS_KEY, JSON.stringify(state));
-  } catch {
-    /* ignore */
-  }
-}
-
-export function clearTrainerState() {
-  try {
-    localStorage.removeItem(TRAINER_STATS_KEY);
   } catch {
     /* ignore */
   }
