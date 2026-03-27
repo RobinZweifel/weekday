@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   checkAnswer,
   createChallenge,
@@ -17,6 +17,7 @@ import {
   saveTrainerState,
   type TrainerPersistedState,
 } from "@/lib/trainer-stats";
+import { SettingsToggle } from "@/components/SettingsToggle";
 
 const WEEKDAYS_MON_FIRST: { label: string; value: number }[] = [
   { label: "Mon", value: 1 },
@@ -34,6 +35,11 @@ const DIFFICULTY_OPTIONS: { id: Difficulty; label: string }[] = [
   { id: "medium", label: "Medium" },
   { id: "hard", label: "Hard" },
 ];
+
+/** How long date + weekday row stay visible before hiding (memory mode). */
+const MEMORIZE_MS = 5000;
+/** How long a “Peek date” stays on screen. */
+const PEEK_MS = 3000;
 
 function weekdayName(d: number): string {
   return WEEKDAYS_MON_FIRST.find((x) => x.value === d)?.label ?? "?";
@@ -65,11 +71,23 @@ export function WeekdayTrainer() {
     createDefaultTrainerState()
   );
 
+  const [memoryMode, setMemoryMode] = useState(true);
+  const [surfaceMemorizeVisible, setSurfaceMemorizeVisible] = useState(true);
+  const [answerOpen, setAnswerOpen] = useState(false);
+  const [peekDate, setPeekDate] = useState(false);
+  const peekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const fetchChallenge = useCallback(async (d: Difficulty) => {
     setLoading(true);
     setPhase("guess");
     setResult(null);
     setWrongWeekdays([]);
+    setAnswerOpen(false);
+    setPeekDate(false);
+    if (peekTimerRef.current) {
+      clearTimeout(peekTimerRef.current);
+      peekTimerRef.current = null;
+    }
     try {
       const next = await createChallenge(d);
       setChallenge(next);
@@ -85,6 +103,59 @@ export function WeekdayTrainer() {
   useEffect(() => {
     void fetchChallenge(difficulty);
   }, [difficulty, fetchChallenge]);
+
+  useEffect(() => {
+    if (wrongWeekdays.length > 0) setAnswerOpen(true);
+  }, [wrongWeekdays.length]);
+
+  useEffect(() => {
+    return () => {
+      if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!memoryMode) {
+      setSurfaceMemorizeVisible(true);
+      setAnswerOpen(true);
+      return;
+    }
+    if (!challenge || loading || phase !== "guess") return;
+    setSurfaceMemorizeVisible(true);
+    setAnswerOpen(false);
+    const id = setTimeout(() => setSurfaceMemorizeVisible(false), MEMORIZE_MS);
+    return () => clearTimeout(id);
+  }, [memoryMode, challenge, loading, phase]);
+
+  const handlePeekDate = useCallback(() => {
+    if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
+    setPeekDate(true);
+    peekTimerRef.current = setTimeout(() => {
+      setPeekDate(false);
+      peekTimerRef.current = null;
+    }, PEEK_MS);
+  }, []);
+
+  const inRecall =
+    memoryMode &&
+    phase === "guess" &&
+    !loading &&
+    !!challenge &&
+    !surfaceMemorizeVisible;
+
+  const showDateInCard =
+    loading ||
+    !challenge ||
+    phase === "revealed" ||
+    !memoryMode ||
+    surfaceMemorizeVisible ||
+    peekDate;
+
+  const showWeekdayButtons =
+    !memoryMode ||
+    phase === "revealed"
+      ? false
+      : surfaceMemorizeVisible || answerOpen;
 
   const modeStats = trainerState.byDifficulty[difficulty];
   const accuracy = accuracyForMode(modeStats);
@@ -154,7 +225,7 @@ export function WeekdayTrainer() {
   }, []);
 
   useEffect(() => {
-    if (phase !== "guess" || loading) return;
+    if (phase !== "guess" || loading || !showWeekdayButtons) return;
     const onKey = (e: KeyboardEvent) => {
       if (
         e.target instanceof HTMLInputElement ||
@@ -170,7 +241,7 @@ export function WeekdayTrainer() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [phase, loading, handleGuess, wrongWeekdays]);
+  }, [phase, loading, handleGuess, wrongWeekdays, showWeekdayButtons]);
 
   return (
     <div className="w-full max-w-lg">
@@ -220,20 +291,69 @@ export function WeekdayTrainer() {
           What day of the week?
         </p>
 
+        {inRecall && (
+          <p className="mb-4 text-center text-sm text-zinc-600 dark:text-zinc-400">
+            Date and choices are hidden. Peek if you need the date again, or
+            Answer when you are ready to pick.
+          </p>
+        )}
+
         <div
           className="mb-8 text-center font-mono text-3xl leading-tight tracking-tight text-zinc-900 tabular-nums sm:text-4xl dark:text-zinc-50"
           aria-live="polite"
         >
           {loading || !challenge ? (
             <span className="text-zinc-400">Loading…</span>
-          ) : (
+          ) : showDateInCard ? (
             formatChallengeDate(
               challenge.year,
               challenge.month,
               challenge.day
             )
+          ) : (
+            <span className="text-xl font-sans font-normal tracking-normal text-zinc-400 dark:text-zinc-500">
+              Date hidden
+            </span>
           )}
         </div>
+
+        {inRecall && (
+          <div className="mb-6 flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={handlePeekDate}
+              className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-800 transition-colors hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 dark:focus-visible:ring-zinc-500"
+            >
+              Peek date
+            </button>
+            <button
+              type="button"
+              onClick={() => setAnswerOpen(true)}
+              className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:focus-visible:ring-zinc-500"
+            >
+              Answer
+            </button>
+            {answerOpen && wrongWeekdays.length === 0 && (
+              <button
+                type="button"
+                onClick={() => setAnswerOpen(false)}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-600 transition-colors hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none dark:text-zinc-400 dark:hover:text-zinc-100 dark:focus-visible:ring-zinc-500"
+              >
+                Hide choices
+              </button>
+            )}
+          </div>
+        )}
+
+        {memoryMode &&
+          phase === "guess" &&
+          !loading &&
+          challenge &&
+          surfaceMemorizeVisible && (
+            <p className="mb-4 text-center text-xs text-zinc-400 dark:text-zinc-500">
+              Memorize now — hiding in a few seconds.
+            </p>
+          )}
 
         {wrongWeekdays.length > 0 && phase === "guess" && (
           <p
@@ -244,35 +364,37 @@ export function WeekdayTrainer() {
           </p>
         )}
 
-        <div
-          className="mb-6 flex flex-wrap justify-center gap-2"
-          role="group"
-          aria-label="Pick weekday"
-        >
-          {WEEKDAYS_MON_FIRST.map(({ label, value }, i) => {
-            const pickedWrong = wrongWeekdays.includes(value);
-            const disabled =
-              loading ||
-              !challenge ||
-              phase !== "guess" ||
-              submitting ||
-              pickedWrong;
-            return (
-              <button
-                key={value}
-                type="button"
-                disabled={disabled}
-                onClick={() => void handleGuess(value)}
-                className="min-w-[3.25rem] rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm font-medium text-zinc-800 transition-colors hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 dark:focus-visible:ring-zinc-500"
-              >
-                <span className="block">{label}</span>
-                <span className="mt-0.5 block text-[10px] font-normal text-zinc-400 dark:text-zinc-500">
-                  {i + 1}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        {showWeekdayButtons && (
+          <div
+            className="mb-6 flex flex-wrap justify-center gap-2"
+            role="group"
+            aria-label="Pick weekday"
+          >
+            {WEEKDAYS_MON_FIRST.map(({ label, value }, i) => {
+              const pickedWrong = wrongWeekdays.includes(value);
+              const disabled =
+                loading ||
+                !challenge ||
+                phase !== "guess" ||
+                submitting ||
+                pickedWrong;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => void handleGuess(value)}
+                  className="min-w-[3.25rem] rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm font-medium text-zinc-800 transition-colors hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 dark:focus-visible:ring-zinc-500"
+                >
+                  <span className="block">{label}</span>
+                  <span className="mt-0.5 block text-[10px] font-normal text-zinc-400 dark:text-zinc-500">
+                    {i + 1}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {result && phase === "revealed" && (
           <div
@@ -300,16 +422,23 @@ export function WeekdayTrainer() {
           </div>
         )}
 
-        <div className="flex flex-col items-center gap-4 border-t border-zinc-100 pt-6 dark:border-zinc-800">
-          <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-            <input
-              type="checkbox"
-              checked={secondChanceEnabled}
-              onChange={(e) => setSecondChanceEnabled(e.target.checked)}
-              className="size-4 rounded border-zinc-300 text-zinc-900 focus:ring-2 focus:ring-zinc-400 focus:ring-offset-0 dark:border-zinc-600 dark:bg-zinc-900 dark:focus:ring-zinc-500"
+        <div className="flex flex-col items-center gap-5 border-t border-zinc-100 pt-6 dark:border-zinc-800">
+          <div className="w-full divide-y divide-zinc-200/90 rounded-xl border border-zinc-200/80 bg-zinc-50/60 px-3 dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900/35">
+            <SettingsToggle
+              id="toggle-memory-mode"
+              checked={memoryMode}
+              onCheckedChange={setMemoryMode}
+              label="Memory mode"
+              description={`Hide the date and weekday row after ${MEMORIZE_MS / 1000} seconds. Use Peek or Answer when you are ready.`}
             />
-            <span>Second chance (one retry if the first guess is wrong)</span>
-          </label>
+            <SettingsToggle
+              id="toggle-second-chance"
+              checked={secondChanceEnabled}
+              onCheckedChange={setSecondChanceEnabled}
+              label="Second chance"
+              description="If your first guess is wrong, you get one more try before the round ends."
+            />
+          </div>
 
           <div className="flex flex-wrap justify-center gap-2">
             {DIFFICULTY_OPTIONS.map(({ id, label }) => (
