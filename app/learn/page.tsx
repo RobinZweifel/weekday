@@ -47,6 +47,12 @@ export default function LearnPage() {
         >
           Doomsday-by-year drill →
         </Link>
+        <Link
+          href="/learn/doomsday-year"
+          className="text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+        >
+          Doomsday of a year (quick) →
+        </Link>
       </div>
 
       <h1 className="mb-2 text-3xl font-semibold tracking-tight">

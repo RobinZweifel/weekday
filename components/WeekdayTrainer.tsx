@@ -8,6 +8,7 @@ import {
   type ChallengeDate,
 } from "@/app/actions/challenge";
 import type { Difficulty } from "@/lib/weekday";
+import { WEEKDAYS_MON_FIRST, weekdayShortLabel } from "@/lib/weekday-buttons";
 import {
   accuracyForMode,
   applyRoundResult,
@@ -17,22 +18,13 @@ import {
   saveTrainerState,
   type TrainerPersistedState,
 } from "@/lib/trainer-stats";
+import { SettingsToggle } from "@/components/SettingsToggle";
+import { WeekdayPickerGrid } from "@/components/WeekdayPickerGrid";
 
 export type WeekdayTrainerProps = {
   syncedUserId?: string | null;
   initialRemoteState?: TrainerPersistedState | null;
 };
-import { SettingsToggle } from "@/components/SettingsToggle";
-
-const WEEKDAYS_MON_FIRST: { label: string; value: number }[] = [
-  { label: "Mon", value: 1 },
-  { label: "Tue", value: 2 },
-  { label: "Wed", value: 3 },
-  { label: "Thu", value: 4 },
-  { label: "Fri", value: 5 },
-  { label: "Sat", value: 6 },
-  { label: "Sun", value: 0 },
-];
 
 const DIFFICULTY_OPTIONS: { id: Difficulty; label: string }[] = [
   { id: "very_easy", label: "Very easy" },
@@ -45,10 +37,6 @@ const DIFFICULTY_OPTIONS: { id: Difficulty; label: string }[] = [
 const MEMORIZE_MS = 5000;
 /** How long a “Peek date” stays on screen. */
 const PEEK_MS = 3000;
-
-function weekdayName(d: number): string {
-  return WEEKDAYS_MON_FIRST.find((x) => x.value === d)?.label ?? "?";
-}
 
 function formatChallengeDate(y: number, m: number, d: number): string {
   return new Intl.DateTimeFormat("en-US", {
@@ -392,36 +380,15 @@ export function WeekdayTrainer({
           </p>
         )}
 
-        {showWeekdayButtons && (
-          <div
-            className="mb-4 flex max-w-full flex-wrap justify-center gap-1 sm:mb-6 sm:gap-2"
-            role="group"
-            aria-label="Pick weekday"
-          >
-            {WEEKDAYS_MON_FIRST.map(({ label, value }, i) => {
-              const pickedWrong = wrongWeekdays.includes(value);
-              const disabled =
-                loading ||
-                !challenge ||
-                phase !== "guess" ||
-                submitting ||
-                pickedWrong;
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => void handleGuess(value)}
-                  className="min-h-[40px] min-w-[2.35rem] rounded-lg border border-zinc-200 bg-zinc-50 px-1.5 py-1.5 text-[11px] font-medium text-zinc-800 transition-colors hover:bg-zinc-100 active:bg-zinc-200 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-40 sm:min-h-0 sm:min-w-[2.75rem] sm:px-3 sm:py-2.5 sm:text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 dark:active:bg-zinc-700 dark:focus-visible:ring-zinc-500"
-                >
-                  <span className="block leading-none">{label}</span>
-                  <span className="mt-0.5 hidden text-[10px] font-normal text-zinc-400 sm:block dark:text-zinc-500">
-                    {i + 1}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+        {showWeekdayButtons && challenge && (
+          <WeekdayPickerGrid
+            shuffleKey={`${challenge.year}-${challenge.month}-${challenge.day}`}
+            onPick={(value) => void handleGuess(value)}
+            locked={
+              loading || phase !== "guess" || submitting
+            }
+            isChoiceDisabled={(value) => wrongWeekdays.includes(value)}
+          />
         )}
 
         {result && phase === "revealed" && (
@@ -442,7 +409,7 @@ export function WeekdayTrainer({
                 </span>{" "}
                 It was{" "}
                 <span className="font-semibold text-zinc-900 dark:text-zinc-50">
-                  {weekdayName(result.actualWeekday)}
+                  {weekdayShortLabel(result.actualWeekday)}
                 </span>
                 .
               </p>

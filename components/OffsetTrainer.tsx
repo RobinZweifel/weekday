@@ -1,24 +1,16 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
-  checkDoomsdayAnswer,
-  createDoomsdayChallenge,
-  type DoomsdayChallenge,
-} from "@/app/actions/doomsday-challenge";
-import type { Difficulty } from "@/lib/weekday";
+  checkOffsetAnswer,
+  createOffsetChallenge,
+  type OffsetChallenge,
+} from "@/app/actions/offset-challenge";
+import { WEEKDAY_NAMES_SUN0 } from "@/lib/weekday-offset";
 import { WEEKDAYS_MON_FIRST, weekdayShortLabel } from "@/lib/weekday-buttons";
 import { WeekdayPickerGrid } from "@/components/WeekdayPickerGrid";
 
-const DIFFICULTY_OPTIONS: { id: Difficulty; label: string }[] = [
-  { id: "very_easy", label: "Very easy" },
-  { id: "easy", label: "Easy" },
-  { id: "medium", label: "Medium" },
-  { id: "hard", label: "Hard" },
-];
-
-const STATS_KEY = "weekday-doomsday-drill-stats";
+const STATS_KEY = "weekday-offset-drill-stats";
 const HISTORY_LEN = 20;
 
 type DrillStats = { streak: number; history: boolean[] };
@@ -53,9 +45,8 @@ function saveStats(s: DrillStats) {
   );
 }
 
-export function DoomsdayTrainer() {
-  const [difficulty, setDifficulty] = useState<Difficulty>("easy");
-  const [challenge, setChallenge] = useState<DoomsdayChallenge | null>(null);
+export function OffsetTrainer() {
+  const [challenge, setChallenge] = useState<OffsetChallenge | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [phase, setPhase] = useState<"guess" | "revealed">("guess");
@@ -65,12 +56,12 @@ export function DoomsdayTrainer() {
   } | null>(null);
   const [stats, setStats] = useState<DrillStats>({ streak: 0, history: [] });
 
-  const fetchChallenge = useCallback(async (d: Difficulty) => {
+  const fetchChallenge = useCallback(async () => {
     setLoading(true);
     setPhase("guess");
     setResult(null);
     try {
-      const next = await createDoomsdayChallenge(d);
+      const next = await createOffsetChallenge();
       setChallenge(next);
     } finally {
       setLoading(false);
@@ -82,8 +73,8 @@ export function DoomsdayTrainer() {
   }, []);
 
   useEffect(() => {
-    void fetchChallenge(difficulty);
-  }, [difficulty, fetchChallenge]);
+    void fetchChallenge();
+  }, [fetchChallenge]);
 
   const accuracy =
     stats.history.length === 0
@@ -97,8 +88,10 @@ export function DoomsdayTrainer() {
       if (!challenge || phase !== "guess" || submitting) return;
       setSubmitting(true);
       try {
-        const r = await checkDoomsdayAnswer({
-          year: challenge.year,
+        const r = await checkOffsetAnswer({
+          baseWeekday: challenge.baseWeekday,
+          days: challenge.days,
+          direction: challenge.direction,
           weekday,
         });
         setResult(r);
@@ -118,7 +111,7 @@ export function DoomsdayTrainer() {
   );
 
   const handleNext = () => {
-    void fetchChallenge(difficulty);
+    void fetchChallenge();
   };
 
   useEffect(() => {
@@ -138,6 +131,21 @@ export function DoomsdayTrainer() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [phase, loading, handleGuess]);
+
+  const baseName = challenge
+    ? WEEKDAY_NAMES_SUN0[challenge.baseWeekday]
+    : "";
+  const baseLower = baseName ? baseName.toLowerCase() : "";
+  const compactLine =
+    challenge &&
+    (challenge.direction === "add"
+      ? `${baseLower} plus ${challenge.days}`
+      : `${baseLower} -${challenge.days}`);
+  const challengeAria =
+    challenge &&
+    (challenge.direction === "add"
+      ? `${baseName} plus ${challenge.days} days — which weekday?`
+      : `${baseName} minus ${challenge.days} days — which weekday?`);
 
   return (
     <div className="w-full max-w-lg min-w-0 px-1 sm:px-0">
@@ -169,40 +177,32 @@ export function DoomsdayTrainer() {
 
       <div className="rounded-2xl border border-zinc-200/80 bg-white p-3 shadow-sm sm:p-8 dark:border-zinc-800 dark:bg-zinc-950">
         <p className="mb-1 text-center text-xs font-medium tracking-wide text-zinc-500 uppercase sm:mb-2 sm:text-sm dark:text-zinc-400">
-          Doomsday for year
+          Weekday offset
         </p>
-        <p className="mb-2 text-center text-[11px] leading-snug text-zinc-500 sm:mb-4 sm:text-xs sm:leading-relaxed dark:text-zinc-400">
-          <span className="sm:hidden">
-            Weekday of the last day in February (Gregorian).
-          </span>
-          <span className="hidden sm:inline">
-            Which weekday is the last day of February? (That is the Doomsday for
-            the Gregorian year.)
-          </span>
-        </p>
-        <p className="mb-3 text-center sm:mb-6">
-          <Link
-            href="/learn/doomsday-year"
-            className="text-[11px] font-medium text-zinc-600 underline-offset-2 hover:text-zinc-900 hover:underline sm:text-xs dark:text-zinc-400 dark:hover:text-zinc-200"
-          >
-            Quick guide: find any year’s Doomsday
-          </Link>
+        <p className="mb-3 text-center text-[11px] leading-snug text-zinc-500 sm:mb-6 sm:text-xs sm:leading-relaxed dark:text-zinc-400">
+          Read the line, then pick the weekday (1–20 days except 7 and 14;
+          Sun–Sat week).
         </p>
 
         <div
-          className="mb-4 text-center font-mono text-2xl leading-tight tracking-tight text-zinc-900 tabular-nums sm:mb-8 sm:text-4xl md:text-5xl dark:text-zinc-50"
+          className="mb-4 min-h-[4.5rem] text-center sm:mb-8 sm:min-h-0"
           aria-live="polite"
         >
           {loading || !challenge ? (
             <span className="text-zinc-400">Loading…</span>
           ) : (
-            challenge.year
+            <p
+              className="font-mono text-xl font-medium tracking-tight text-zinc-900 sm:text-3xl dark:text-zinc-50"
+              aria-label={challengeAria || undefined}
+            >
+              {compactLine}
+            </p>
           )}
         </div>
 
         {challenge && (
           <WeekdayPickerGrid
-            shuffleKey={String(challenge.year)}
+            shuffleKey={`${challenge.baseWeekday}-${challenge.days}-${challenge.direction}`}
             onPick={(value) => void handleGuess(value)}
             locked={loading || phase !== "guess" || submitting}
           />
@@ -222,9 +222,10 @@ export function DoomsdayTrainer() {
                 <span className="font-medium text-red-700 dark:text-red-400">
                   Not quite.
                 </span>{" "}
-                Doomsday was{" "}
+                It is{" "}
                 <span className="font-semibold text-zinc-900 dark:text-zinc-50">
-                  {weekdayShortLabel(result.actualWeekday)}
+                  {WEEKDAY_NAMES_SUN0[result.actualWeekday]} (
+                  {weekdayShortLabel(result.actualWeekday)})
                 </span>
                 .
               </p>
@@ -232,24 +233,7 @@ export function DoomsdayTrainer() {
           </div>
         )}
 
-        <div className="flex flex-col items-center gap-2 border-t border-zinc-100 pt-3 sm:gap-4 sm:pt-6 dark:border-zinc-800">
-          <div className="flex max-w-full flex-wrap justify-center gap-1 sm:gap-2">
-            {DIFFICULTY_OPTIONS.map(({ id, label }) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setDifficulty(id)}
-                className={`min-h-[34px] rounded-full px-2.5 py-1.5 text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none active:opacity-90 sm:min-h-0 sm:px-4 sm:py-1.5 sm:text-sm dark:focus-visible:ring-zinc-500 ${
-                  difficulty === id
-                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                    : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
+        <div className="flex flex-col items-center gap-2 border-t border-zinc-100 pt-3 sm:pt-6 dark:border-zinc-800">
           {phase === "revealed" && (
             <button
               type="button"
@@ -257,7 +241,7 @@ export function DoomsdayTrainer() {
               disabled={loading}
               className="min-h-[44px] w-full max-w-xs rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 active:bg-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none disabled:opacity-50 sm:min-h-0 sm:w-auto sm:px-6 sm:py-2.5 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:active:bg-zinc-300 dark:focus-visible:ring-zinc-500"
             >
-              Next year
+              Next
             </button>
           )}
         </div>
