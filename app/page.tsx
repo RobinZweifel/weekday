@@ -17,7 +17,14 @@ export default async function Home() {
         syncedUserId={userId}
         initialRemoteState={remoteStats}
       />
-      <p className="mt-8 hidden max-w-md text-pretty text-center text-sm leading-relaxed text-zinc-500 sm:mt-10 sm:block dark:text-zinc-400">
+      <p className="mt-6 max-w-md text-pretty text-center text-xs leading-relaxed text-zinc-500 sm:mt-10 sm:text-sm dark:text-zinc-400">
+        <Link
+          href="/learn#weekday-numbers"
+          className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200"
+        >
+          Weekday numbers
+        </Link>
+        <span className="text-zinc-400 dark:text-zinc-500"> · </span>
         Uses the Gregorian calendar (UTC date). Learn the{" "}
         <Link
           href="/learn"

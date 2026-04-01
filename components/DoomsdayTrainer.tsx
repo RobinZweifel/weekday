@@ -13,12 +13,11 @@ import {
   createDoomsdayChallenge,
   type DoomsdayChallenge,
 } from "@/app/actions/doomsday-challenge";
-import { Slider } from "@/components/ui/slider";
+import { DoomsdayYearRangePanel } from "@/components/DoomsdayYearRangePanel";
 import {
   DOOMSDAY_DEFAULT_RANGE,
-  DOOMSDAY_SLIDER_MAX,
-  DOOMSDAY_SLIDER_MIN,
   isValidDoomsdayChallengeRange,
+  sortDoomsdayRange,
 } from "@/lib/doomsday";
 import { WEEKDAYS_MON_FIRST, weekdayShortLabel } from "@/lib/weekday-buttons";
 import { WeekdayPickerGrid } from "@/components/WeekdayPickerGrid";
@@ -83,16 +82,6 @@ function saveStats(s: DrillStats) {
       history: s.history.slice(-HISTORY_LEN),
     })
   );
-}
-
-function parseSliderTuple(
-  v: readonly number[] | number
-): [number, number] | null {
-  if (!Array.isArray(v) || v.length !== 2) return null;
-  const a = Math.round(v[0]!);
-  const b = Math.round(v[1]!);
-  if (!isValidDoomsdayChallengeRange(a, b)) return null;
-  return [a, b];
 }
 
 export function DoomsdayTrainer() {
@@ -198,6 +187,39 @@ export function DoomsdayTrainer() {
     void fetchChallenge(activeRange[0], activeRange[1]);
   };
 
+  const commitFullRange = useCallback((r: [number, number]) => {
+    const t = sortDoomsdayRange(Math.round(r[0]), Math.round(r[1]));
+    if (!isValidDoomsdayChallengeRange(t[0], t[1])) return;
+    setSliderRange((prev) => {
+      const a = Math.min(prev[0], prev[1]);
+      const b = Math.max(prev[0], prev[1]);
+      if (a === t[0] && b === t[1]) return prev;
+      return t;
+    });
+    setActiveRange((prev) => {
+      const a = Math.min(prev[0], prev[1]);
+      const b = Math.max(prev[0], prev[1]);
+      if (a === t[0] && b === t[1]) return prev;
+      return t;
+    });
+  }, []);
+
+  const [rangeSheetOpen, setRangeSheetOpen] = useState(false);
+
+  useEffect(() => {
+    if (!rangeSheetOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setRangeSheetOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [rangeSheetOpen]);
+
   useEffect(() => {
     if (phase !== "guess" || loading) return;
     const onKey = (e: KeyboardEvent) => {
@@ -216,11 +238,14 @@ export function DoomsdayTrainer() {
     return () => window.removeEventListener("keydown", onKey);
   }, [phase, loading, handleGuess]);
 
+  const rngLo = Math.min(sliderRange[0], sliderRange[1]);
+  const rngHi = Math.max(sliderRange[0], sliderRange[1]);
+
   return (
-    <div className="w-full max-w-lg min-w-0 px-1 sm:px-0">
-      <div className="mb-2 flex justify-end sm:mb-3">
+    <div className="flex min-h-0 w-full max-w-xl min-w-0 flex-1 flex-col px-1 sm:flex-none sm:px-0">
+      <div className="mb-2 hidden justify-end sm:mb-3 sm:flex">
         <div
-          className="flex min-w-0 flex-col items-end gap-0.5 text-right text-xs text-zinc-500 tabular-nums max-sm:flex-row max-sm:flex-wrap max-sm:justify-end max-sm:gap-x-2 max-sm:gap-y-0 max-sm:text-[10px] dark:text-zinc-400"
+          className="flex min-w-0 flex-col items-end gap-0.5 text-right text-xs text-zinc-500 tabular-nums dark:text-zinc-400"
           role="status"
         >
           <span>
@@ -244,30 +269,49 @@ export function DoomsdayTrainer() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-zinc-200/80 bg-white p-3 shadow-sm sm:p-8 dark:border-zinc-800 dark:bg-zinc-950">
-        <p className="mb-1 text-center text-xs font-medium tracking-wide text-zinc-500 uppercase sm:mb-2 sm:text-sm dark:text-zinc-400">
-          Doomsday for year
+      <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-zinc-200/80 bg-white p-2 shadow-sm sm:min-h-0 sm:flex-none sm:p-8 dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="mb-1 flex items-start justify-between gap-2 sm:mb-1 sm:block">
+          <p className="flex-1 text-center text-[10px] font-medium tracking-wide text-zinc-500 uppercase sm:mb-1 sm:flex-none sm:text-xs sm:tracking-wide dark:text-zinc-400">
+            <span className="sm:hidden">Doomsday · Feb last day</span>
+            <span className="hidden sm:inline">Doomsday for year</span>
+          </p>
+          <div
+            className="shrink-0 text-right text-[9px] leading-tight text-zinc-500 sm:hidden dark:text-zinc-400"
+            role="status"
+          >
+            <div>
+              <span className="text-zinc-400">Streak </span>
+              <span className="font-semibold tabular-nums text-zinc-800 dark:text-zinc-200">
+                {stats.streak}
+              </span>
+            </div>
+            {accuracy !== null ? (
+              <div className="mt-0.5">
+                <span className="font-semibold tabular-nums text-zinc-800 dark:text-zinc-200">
+                  {accuracy}%
+                </span>
+                <span className="text-zinc-400">
+                  {" "}
+                  ({stats.history.length})
+                </span>
+              </div>
+            ) : (
+              <div className="mt-0.5 text-zinc-400">No rounds yet</div>
+            )}
+          </div>
+        </div>
+        <p className="mb-1 hidden text-center text-[11px] leading-snug text-zinc-500 sm:mb-4 sm:block sm:text-xs sm:leading-relaxed dark:text-zinc-400">
+          Which weekday is the last day of February? (That is the Doomsday for
+          the Gregorian year.)
         </p>
-        <p className="mb-2 text-center text-[11px] leading-snug text-zinc-500 sm:mb-4 sm:text-xs sm:leading-relaxed dark:text-zinc-400">
-          <span className="sm:hidden">
-            Weekday of the last day in February (Gregorian).
-          </span>
-          <span className="hidden sm:inline">
-            Which weekday is the last day of February? (That is the Doomsday for
-            the Gregorian year.)
-          </span>
-        </p>
-        <p className="mb-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-center sm:mb-6">
+        <p className="mb-2 hidden flex-wrap items-center justify-center gap-x-3 gap-y-1 text-center sm:mb-6 sm:flex">
           <Link
             href="/learn/doomsday-year"
             className="text-[11px] font-medium text-zinc-600 underline-offset-2 hover:text-zinc-900 hover:underline sm:text-xs dark:text-zinc-400 dark:hover:text-zinc-200"
           >
             Quick guide: find any year’s Doomsday
           </Link>
-          <span
-            className="hidden text-zinc-300 sm:inline dark:text-zinc-600"
-            aria-hidden
-          >
+          <span className="text-zinc-300 dark:text-zinc-600" aria-hidden>
             ·
           </span>
           <Link
@@ -279,7 +323,7 @@ export function DoomsdayTrainer() {
         </p>
 
         <div
-          className="mb-4 text-center font-mono text-2xl leading-tight tracking-tight text-zinc-900 tabular-nums sm:mb-8 sm:text-4xl md:text-5xl dark:text-zinc-50"
+          className="mb-2 text-center font-mono text-2xl leading-none tracking-tight text-zinc-900 tabular-nums sm:mb-8 sm:text-4xl sm:leading-tight md:text-5xl dark:text-zinc-50"
           aria-live="polite"
         >
           {loading || !challenge ? (
@@ -291,6 +335,7 @@ export function DoomsdayTrainer() {
 
         {challenge && (
           <WeekdayPickerGrid
+            density="compactMobile"
             shuffleKey={String(challenge.year)}
             onPick={(value) => void handleGuess(value)}
             locked={loading || phase !== "guess" || submitting}
@@ -299,7 +344,7 @@ export function DoomsdayTrainer() {
 
         {result && phase === "revealed" && (
           <div
-            className="mb-4 rounded-xl px-3 py-2 text-center text-xs sm:mb-6 sm:px-4 sm:py-3 sm:text-sm"
+            className="mb-2 rounded-lg px-2 py-1.5 text-center text-[11px] sm:mb-6 sm:rounded-xl sm:px-4 sm:py-3 sm:text-sm"
             role="status"
           >
             {result.correct ? (
@@ -321,39 +366,32 @@ export function DoomsdayTrainer() {
           </div>
         )}
 
-        <div className="flex flex-col items-center gap-3 border-t border-zinc-100 pt-3 sm:gap-4 sm:pt-6 dark:border-zinc-800">
-          <div className="w-full min-w-0 px-1">
-            <p className="mb-2 text-center text-[11px] font-medium text-zinc-600 sm:text-xs dark:text-zinc-300">
-              Year range{" "}
-              <span className="font-mono tabular-nums text-zinc-900 dark:text-zinc-100">
-                {sliderRange[0]}–{sliderRange[1]}
-              </span>
-            </p>
-            <p className="mb-3 text-center text-[10px] text-zinc-500 sm:text-xs dark:text-zinc-400">
-              Drag either end ({DOOMSDAY_SLIDER_MIN}–{DOOMSDAY_SLIDER_MAX}). A
-              new random year loads when you release the slider (or finish a
-              keyboard move)—not on every step while dragging.
-            </p>
-            <Slider
-              className="w-full py-2 [&_[data-slot=slider-thumb]]:size-4 [&_[data-slot=slider-thumb]]:after:-inset-3 sm:[&_[data-slot=slider-thumb]]:size-3 sm:[&_[data-slot=slider-thumb]]:after:-inset-2"
-              min={DOOMSDAY_SLIDER_MIN}
-              max={DOOMSDAY_SLIDER_MAX}
-              step={1}
-              minStepsBetweenValues={0}
-              value={sliderRange}
-              onValueChange={(v) => {
-                const t = parseSliderTuple(v);
-                if (t) setSliderRange(t);
-              }}
-              onValueCommitted={(v) => {
-                const t = parseSliderTuple(v);
-                if (t) setActiveRange(t);
-              }}
-              aria-label="Gregorian year range for practice"
-            />
-            <div className="mt-1 flex justify-between font-mono text-[10px] text-zinc-400 tabular-nums dark:text-zinc-500">
-              <span>{DOOMSDAY_SLIDER_MIN}</span>
-              <span>{DOOMSDAY_SLIDER_MAX}</span>
+        <div className="mt-auto flex flex-col items-center gap-2 border-t border-zinc-100 pt-2 sm:mt-0 sm:gap-4 sm:pt-6 dark:border-zinc-800">
+          <div className="w-full min-w-0 sm:px-1">
+            {/* Mobile: one row trigger — full editor in bottom sheet */}
+            <div className="sm:hidden">
+              <button
+                type="button"
+                onClick={() => setRangeSheetOpen(true)}
+                className="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200/90 bg-zinc-50/80 px-3 py-2 text-left dark:border-zinc-800 dark:bg-zinc-900/40"
+              >
+                <span className="text-[9px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                  Year range
+                </span>
+                <span className="font-mono text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
+                  {rngLo}–{rngHi}
+                </span>
+                <span className="text-[10px] font-medium text-zinc-600 dark:text-zinc-300">
+                  Edit
+                </span>
+              </button>
+            </div>
+            <div className="hidden sm:block">
+              <DoomsdayYearRangePanel
+                sliderRange={sliderRange}
+                onSliderPreview={setSliderRange}
+                onCommit={commitFullRange}
+              />
             </div>
           </div>
 
@@ -362,13 +400,63 @@ export function DoomsdayTrainer() {
               type="button"
               onClick={handleNext}
               disabled={loading}
-              className="min-h-[44px] w-full max-w-xs rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 active:bg-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none disabled:opacity-50 sm:min-h-0 sm:w-auto sm:px-6 sm:py-2.5 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:active:bg-zinc-300 dark:focus-visible:ring-zinc-500"
+              className="min-h-11 w-full max-w-xs rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 active:bg-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none disabled:opacity-50 sm:min-h-0 sm:w-auto sm:px-6 sm:py-2.5 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:active:bg-zinc-300 dark:focus-visible:ring-zinc-500"
             >
               Next year
             </button>
           )}
         </div>
       </div>
+
+      {/* Mobile range sheet — avoids long page scroll */}
+      {rangeSheetOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center sm:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="doomsday-range-sheet-title"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/45 backdrop-blur-[1px]"
+            aria-label="Close range editor"
+            onClick={() => setRangeSheetOpen(false)}
+          />
+          <div className="relative z-10 flex max-h-[min(92dvh,calc(100dvh-2rem))] w-full flex-col rounded-t-2xl border border-b-0 border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-950">
+            <div className="flex shrink-0 flex-col items-center border-b border-zinc-100 pt-2 pb-1 dark:border-zinc-800">
+              <div className="mb-2 h-1 w-9 rounded-full bg-zinc-300 dark:bg-zinc-600" />
+              <h2
+                id="doomsday-range-sheet-title"
+                className="px-4 pb-2 text-center text-sm font-semibold text-zinc-900 dark:text-zinc-50"
+              >
+                Adjust year range
+              </h2>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3 pt-1">
+              <DoomsdayYearRangePanel
+                density="compact"
+                sliderRange={sliderRange}
+                onSliderPreview={setSliderRange}
+                onCommit={commitFullRange}
+              />
+            </div>
+            <div
+              className="shrink-0 border-t border-zinc-100 p-3 dark:border-zinc-800"
+              style={{
+                paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setRangeSheetOpen(false)}
+                className="min-h-11 w-full rounded-xl bg-zinc-900 py-2.5 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { WeekdayNumberTrainer } from "@/components/WeekdayNumberTrainer";
 import { getUtcWeekday, lastFebruaryDay } from "@/lib/weekday";
 
 const MONTH_ANCHORS = [
@@ -62,6 +63,10 @@ export default function LearnPage() {
         A mental shortcut to find the weekday for any Gregorian date. Named after
         “Doomsday” anchor dates in each year that share the same weekday.
       </p>
+
+      <div className="mb-10">
+        <WeekdayNumberTrainer />
+      </div>
 
       <section className="mb-10 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
         <h2 className="mb-3 text-lg font-semibold">This year ({year})</h2>
